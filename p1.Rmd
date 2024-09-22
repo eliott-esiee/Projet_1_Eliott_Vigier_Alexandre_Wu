@@ -1,0 +1,778 @@
+
+---
+title: "<FONT color='#0066CC'><FONT size = 4 ><DIV align= center> AP-4209 ESIEE-Paris: 2023 -2024 </DIV></FONT></FONT>"
+output:
+  html_document:
+    highlight: textmate
+    theme: readable
+    toc: yes
+    toc_depth: 6
+    toc_float: yes
+---
+
+
+
+```{=html}
+<style type="text/css">
+body, td {font-size: 17px;}
+code.r{font-size: 5px;}
+
+pre { font-size: 15px;}
+</style>
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<FONT color='#0066CC'><FONT size = 4 >
+
+::: {align="center"}
+Fouille de données avec R pour la data science et l'intelligence artificielle\
+
+Projet 1 : Classification bayésienne
+:::
+
+
+</FONT></FONT>
+
+<FONT color='#0066CC'><FONT size = 4 >
+
+::: {align="center"}
+Eliott Vigier et Alexandre Wu -- ESIEE Paris\
+:::
+
+</FONT></FONT>
+
+<hr style="border: 1px  solid gray">
+
+</hr>
+
+**Résumé :** Nous développerons un projet de classification bayésienne en utilisant l'ensemble de données sur les émotions (Kaggle) en plusieurs étapes. Nous allons employer une série de pré-traitement plus complexes et éventuellement étendre l'approche bayésienne pour inclure des ajustements (tuning) ou des probabilité supplémentaires.
+
+<br>
+
+**Objectif principal :** Développer un classificateur bayésien pour prédire les émotions à partir de données textuelles.
+
+<br>
+
+**Source des données :** Jeu de données sur les émotions.
+
+* **Lien :** Emotion Dataset (kaggle.com)
+
+<br>
+
+<hr style="border: 1px  solid gray">
+
+### <FONT color='#000033'><FONT size = 3> 1 Introduction  </FONT></FONT> 
+
+ Ce travail se concentre sur la mise en œuvre d'une classification bayésienne pour analyser et prédire les émotions à partir de données textuelles, en utilisant un jeu de données spécifique disponible sur Kaggle. L'objectif est de développer un classificateur capable de distinguer différentes émotions en appliquant des techniques avancées de traitement du langage naturel (NLP), telles que la tokenisation, la stemmatisation ou la lemmatisation, et la vectorisation TF-IDF. Ce processus comprend plusieurs étapes clés, allant de la préparation et le nettoyage des données à l'entraînement et l'évaluation du modèle, avec une attention particulière sur l'exactitude, la précision, le rappel, et le score F1. Le projet vise également à explorer des améliorations potentielles et des ajustements pour optimiser la performance du classificateur bayésien.
+
+<br>
+<hr style="border: 1px  solid gray">
+
+#### <FONT color='#000033'><FONT size = 3> 1.1 Programmation </FONT> 
+
+Nous utilisons :   
+
+- `dplyr`: Manipulation et filtrage des données avec des fonctions intuitives. Essentiel pour le nettoyage et la préparation des données.
+- `kableExtra`: Amélioration des tableaux en HTML ou PDF pour une présentation esthétique des données. [Génération de tableaux améliorés](https://cran.r-project.org/web/packages/kableExtra/vignettes/awesome_table_in_html.html).
+- `tm`: Outils pour le nettoyage et la préparation de textes, cruciaux pour l'analyse de contenu textuel.
+- `knitr`: Intégration de code R dans des documents LaTeX, HTML, Markdown pour la reproduction des analyses.
+- `tokenizers`: Facilitation de la tokenisation et stemming de textes, une étape préliminaire importante dans le prétraitement des données textuelles.
+- `tidytext`: Application des principes du tidyverse au traitement de texte, simplifiant le travail avec des données textuelles.
+- `ggplot2`, `RColorBrewer`, `wordcloud`: Utilisés pour la visualisation de données, permettant la création de graphiques avancés, de palettes de couleurs personnalisées et de nuages de mots.
+- `e1071`, `caret`: Fourniture de fonctions pour l'apprentissage statistique, incluant la classification bayésienne, facilitant la création de modèles prédictifs et la validation croisée.
+
+
+<br>
+
+### <FONT color='#000033'><FONT size = 3> 2 Chargement et exploration des données </FONT></FONT>
+
+<br>
+
+##### <FONT color='#000033'><FONT size =3> 2.1 Chargez le jeu de données dans R </FONT> </FONT> 
+
+On commence à charger les librairies nécessaires pour le projet :
+```{r}
+library(dplyr)
+library(kableExtra)
+
+library(tm)
+library(knitr)
+
+library(tokenizers)
+library(tidytext)
+
+library(ggplot2)
+library(RColorBrewer)
+library(wordcloud)
+
+library(e1071)
+library(caret)
+```
+
+Ensuite on charge le dataset :
+
+```{r, echo = T}
+# Chargement du jeu de donnée
+df <- read.csv("Emotion_classify_Data.csv")
+```
+
+Affichage du tableau avec *kableExtra*
+
+```{r, echo = T}
+df %>%
+  kbl(digits=3) %>%  
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "center", latex_options = 'stripped') %>% scroll_box( height = "250px")
+```
+
+
+<br>
+
+#### <FONT color='#000033'><FONT size =3> 2.2 Analyse exploratoire des données (EDA) pour comprendre la distribution des classes, la longueur des entrées de texte et tout autre modèle </FONT> </FONT> 
+
+On va observer les différents type d'émotion et leurs répartions.
+```{r, echo = T}
+# Analyse de la distribution des classes
+class_distribution <- table(df$Emotion)
+class_distribution
+```
+On a 3 émotions anger, fear et joy.
+
+Ces dernières sont réparties de manières assez uniformes avec très légerement moins présente.
+
+Voici une interprétation graphique.
+
+```{r, echo = T}
+# Distribution des classes
+ggplot(df, aes(x=Emotion,fill = Emotion)) +
+  geom_bar() +
+  scale_fill_brewer(palette = "Set1") +
+  xlab("Emotion") +
+  ylab("Fréquence") +
+  ggtitle("Distribution des émotions")
+```
+
+
+On regarde ensuite la longueur des chaînes de caractères et ajoute cette colonne à df.
+Affichage du tableau avec *kableExtra*
+```{r, echo = T}
+# Ajout de la colonne TextLength
+df$TextLength <- nchar(df$Comment)
+
+head(df,6) %>%
+  kbl(digits=3) %>%  
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "center", latex_options = 'stripped') %>% scroll_box( height = "250px")
+```
+
+On va regarder les types de sentiments en fonction de la distribution de la longueur des textes.
+
+```{r, echo = T}
+# Distribution de la longueur des textes
+ggplot(df, aes(x=TextLength,fill=Emotion)) +
+  geom_histogram(binwidth = 8, position = "stack") +
+  scale_fill_brewer(palette = "Set1") +
+  xlab("Longueur du texte") +
+  ylab("Fréquence") +
+  ggtitle("Répartition des émotions par longueur de texte")
+```
+
+Cette dernière est assez uniforme.
+<hr>
+
+<br>
+
+### <FONT color='#000033'> <FONT size = 3> 3 Prétraitement des données </FONT></FONT>
+
+<br>
+
+#### <FONT color='#000033'> <FONT size = 3> 3.1 Nettoyage les données textuelles en supprimant les caractères spéciaux, les chiffres et les mots vides </FONT></FONT>
+
+<br>
+On va d'abord nétoyer nos données en supprimant la ponctuation, les chiffres, les mots vides, les espaces superflus
+```{r, echo = T}
+# On enlève la colonne TextLength qui n'est plus utile ici
+df_net_tok_stem <-df %>% select(-TextLength)
+# Fonction pour nettoyer un texte
+clean_text <- function(text) {
+    text_corrige <- tolower(text)                                       # Convertir en minuscules
+    text_corrige  <- removePunctuation(text_corrige )                   # Supprimer la ponctuation
+    text_corrige  <- removeNumbers(text_corrige )                       # Supprimer les chiffres
+    text_corrige  <- removeWords(text_corrige , stopwords("english"))   # Supprimer les mots vides
+    text_corrige  <- stripWhitespace(text_corrige )                     # Supprimer les espaces superflus
+    return(text_corrige)
+  }
+# Application de la fonction de nettoyage
+df_net_tok_stem$Comment <- sapply(df_net_tok_stem$Comment, clean_text)
+head(df_net_tok_stem,6) %>%
+  kbl(digits=3) %>%
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "center", latex_options = 'stripped') %>%
+  scroll_box(height = "250px")
+```
+
+On va pouvoir maintenant appliquer la tokenization et le stemming avec la fonction tokenize_word_stems. Cette fonction tokenise et applique du stemming du package snowballC selon la doc.
+
+```{r, echo = T}
+# Appliquer la tokenization et le stemming avec la fonction tokenize_word_stems
+df_net_tok_stem$Comment<- sapply(df_net_tok_stem$Comment, function(phrase){
+    tokenize_word_stems(phrase,language = "english")
+  })
+
+# On met des espaces entre les mots au lieu de ','
+df_net_tok_stem$Comment <- sapply(df_net_tok_stem$Comment, paste, collapse = " ")
+
+# Utilisez kable pour afficher 
+head(df_net_tok_stem,6) %>%
+    kbl(digits=3) %>%
+    kable_styling(bootstrap_options = "striped", full_width = F, position = "center", latex_options = 'stripped') %>%
+    scroll_box(height = "250px")
+```
+
+<br>
+
+On va faire un wordcloud pour voir les mots les plus fréquents par Emotion.
+
+On calcule la fréquence de chaque mots par émotion.
+
+```{r, echo = T}
+# Calcule de la fréquence de chaque mots par émotion
+word_freq_emotion <- df_net_tok_stem %>%
+  unnest_tokens(word, Comment)%>%
+  count(Emotion, word, sort = TRUE)
+
+head(word_freq_emotion,6)%>%
+    kbl(digits=3) %>%
+    kable_styling(bootstrap_options = "striped", full_width = F, position = "center", latex_options = 'stripped')
+```
+
+Voici la fonction pour les wordclouds.
+```{r, echo = T}
+# Fonction pour créer un word cloud pour une émotion spécifique
+generate_wordcloud_for_emotion <- function(emotion) {
+
+  # Filtrer les mots par émotion spécifique
+  word_freq <- filter(word_freq_emotion, Emotion == emotion)
+  # Créer le word cloud
+  wordcloud(words = word_freq$word, freq = word_freq$n, min.freq = 1,
+            max.words = 200, random.order = FALSE,scale = c(5, 0.5), colors = brewer.pal(8, "Dark2"))
+    # Ajoute un titre pour le nuage de mots avec l'émotion correspondante
+  title(paste("Word cloud for emotion:", emotion))
+}
+```
+
+
+
+```{r, echo = T}
+generate_wordcloud_for_emotion('joy')
+```
+
+```{r, echo = T}
+generate_wordcloud_for_emotion('fear')
+```
+
+
+```{r, echo = T}
+generate_wordcloud_for_emotion('anger')
+```
+
+On observe ici que les résultats sont trop proche. On va utiliser une version log.
+
+
+```{r, echo = T}
+# Mise à jour de la fonction pour utiliser la fréquence logarithmique
+generate_wordcloud_for_emotion_2 <- function(emotion) {
+  # Filtre les mots par émotion spécifique
+  word_freq <- filter(word_freq_emotion, Emotion == emotion) %>%
+    # Calculer le log des fréquences
+  mutate(log_n = log(1+n))
+  # Créer le word cloud en utilisant les fréquences logarithmiques
+  wordcloud(words = word_freq$word, freq = word_freq$log_n, min.freq = 0,
+            max.words = 200, random.order = FALSE,scale = c(1, 0.5), colors = brewer.pal(8, "Dark2"),rot.per = 0.35)
+  
+}
+```
+
+Pour la joie.
+
+```{r, echo = T}
+generate_wordcloud_for_emotion_2('joy')
+```
+
+Pour la peur.
+
+```{r, echo = T}
+generate_wordcloud_for_emotion_2('fear')
+```
+
+Pour la colère.
+
+```{r, echo = T}
+generate_wordcloud_for_emotion_2('anger')
+```
+
+<br>
+
+#### <FONT color='#000033'> <FONT size = 3> 3.2 TF-IDF </FONT></FONT>
+
+<br>
+
+Maintenant qu'on a observé les mots les plus fréquents nous allons procéder à une TF-IDF. Pour cela nous allons d'abord séparer notre jeu de données en données d'entraînement et de test avec caret.
+
+<br>
+
+##### <FONT color='#000033'> <FONT size = 3> 3.2.1 Séparation des données </FONT></FONT>
+
+<br>
+
+On va utiliser caret pour créer nos données d'entraînement et de test.
+
+```{r, echo = T}
+set.seed(123) # pour une reproduction cohérente des résultats
+  Index <- createDataPartition(df_net_tok_stem$Emotion, p = .8, list = FALSE)
+  train <- df_net_tok_stem[Index,]
+  test <- df_net_tok_stem[-Index,]
+```
+
+<br>
+
+##### <FONT color='#000033'> <FONT size = 3> 3.2.2 Calcul de la TF-IDF </FONT></FONT>
+
+<br>
+
+On peut maintenant passer au calcul de la TF-IDF. On commence par les données d'entraînement.
+
+```{r, echo = T}
+# TF-IDF
+# Étape 1: Création d'un corpus
+corpus_train <- VCorpus(VectorSource(train$Comment))
+# Étape 2: Création d'une DTM et application de la TF-IDF
+dtm_train <- DocumentTermMatrix(corpus_train, control = list(weighting = weightTfIdf))
+
+# Sauvegarde du vocabulaire pour le jeu d'entraînement
+dict_train <- Terms(dtm_train)
+
+# Convertir en dataframe 
+tf_idf_train_dataframe <- as.data.frame(as.matrix(dtm_train))
+
+head(tf_idf_train_dataframe,6) %>%
+  select(c(1:5, (ncol(tf_idf_train_dataframe)-4):ncol(tf_idf_train_dataframe))) %>% 
+  kbl(digits=3) %>%
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "center", latex_options = 'stripped')
+```
+
+On va faire de même pour les données de tests en prenant le dictionnaire dict_train comportant tout le vocabulaire d'entraînement.
+
+```{r, echo = T}
+# TF-IDF
+# Étape 1: Création d'un corpus
+corpus_test <- VCorpus(VectorSource(test$Comment))
+# Étape 2: Création d'une DTM et application de la TF-IDF
+dtm_test <- DocumentTermMatrix(corpus_test, control = list(weighting = weightTfIdf, dictionary = dict_train))
+
+# Convertir en dataframe 
+tf_idf_test_dataframe <- as.data.frame(as.matrix(dtm_test))
+
+head(tf_idf_test_dataframe,6) %>%
+  select(c(1:5, (ncol(tf_idf_test_dataframe)-4):ncol(tf_idf_test_dataframe))) %>% 
+  kbl(digits=3) %>%
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "center", latex_options = 'stripped')
+```
+
+On a alors notre TF-IDF, on peut alors passer à l'entraînement du modèle.
+
+<br>
+
+<hr>
+
+### <FONT color='#000033'> <FONT size = 3> 4 Entraînement du modèle bayésien </FONT></FONT>
+
+
+<br>
+
+#### <FONT color='#000033'> <FONT size = 3> 4.1 Divisez les données en un ensemble d'apprentissage et un ensemble de test </FONT></FONT>
+
+<br>
+
+On séparare les variables catégorielles et numériques.
+
+```{r, echo = T}
+# Séparation des variables catégorielles et numériques
+X_train <- tf_idf_train_dataframe
+X_test <- tf_idf_test_dataframe
+y_train <- as.factor(train$Emotion)
+y_test <- as.factor(test$Emotion)
+```
+
+On vérifie qu'on a bien le même nombre de lignes entre X et y (train et test).
+
+```{r, echo = T}
+print(dim(X_train))
+print(length(y_train))
+print(dim(X_test))
+print(length(y_test))
+```
+
+On a bien le même nombre de lignes entre X et y (train et test).
+
+<br>
+
+#### <FONT color='#000033'> <FONT size = 3> 4.2 Utilisation du package e1071 R pour entraîner un classifieur bayésien naïf et entraînement de ce dernier sur l'ensemble d'apprentissage et réaliser des prédictions sur l'ensemble de test </FONT></FONT>
+
+<br>
+
+On regarde si la distribution des classes est bien répartie.
+
+```{r, echo = T}
+table(y_train)
+```
+
+```{r, echo = T}
+table(y_test)
+```
+
+On constate que la répartion des classes est bien équilibrée.
+
+On peut donc maintenant entraîner notre modèle. 
+
+```{r, echo = T}
+# Entraînement du modèle bayésien naïf
+# model <- naiveBayes(X_train, y_train)
+```
+
+Prédiction sur les données d'entraînement.
+
+```{r, echo = T}
+# Prédictions sur l'ensemble d'entraînement
+# predictions_train <- predict(model, newdata = X_train)
+```
+
+Prédiction sur les données de test.
+
+```{r, echo = T}
+# Prédiction sur l'ensemble de test
+# predictions <- predict(model, newdata = X_test)
+```
+
+On sauvegarde tout ceci dans un fichier RDA car ces derniers prennent un peu de temps à s'executer.
+
+```{r, echo = T}
+# Sauvegarder les variables dans un fichier .rda
+# save(model, predictions_train, predictions, file = "model_predictions.Rda")
+```
+
+On charge le modèle.
+
+```{r, echo = T}
+load("model_predictions.Rda")
+```
+
+
+<hr>
+
+<br>
+
+### <FONT color='#000033'> <FONT size = 3> 5 Évaluation du modèle </FONT></FONT>
+
+<br>
+
+On regarde l'accuracy d'entraînement.
+
+```{r, echo = T}
+# Calcul de l'accuracy
+accuracy_train <- sum(predictions_train == y_train) / length(y_train)
+print(accuracy_train)
+```
+
+Regardons la matrice de confusion pour mieux comprendre les résultats.
+
+```{r, echo = T}
+# Évaluation du modèle
+confusionMatrice <- table(as.factor(predictions), y_test)
+confusionMatrice
+```
+
+```{r, echo = T}
+# Évaluation du modèle
+confusionMatrix(predictions, y_test)
+```
+
+#### <FONT color='#000033'> <FONT size = 3> 5.1 Calcul de l'exactitude, la précision, le rappel et le score F1 (Accuracy, Precision, Recall, and F1-score) </FONT></FONT>
+
+<br>
+
+Nous faisons cette fonction pour calculer la précision, le rappel et le score F1 en fonction des classes. On calcule également l'accuracy global du modèle.
+
+```{r, echo = T}
+calculate_metrics <- function(confusionMatrix) {
+    # Extracting the number of classes
+    n <- nrow(confusionMatrix)
+    # Initializing vectors to store metrics for each class
+    precision <- numeric(n)
+    recall <- numeric(n)
+    f1_score <- numeric(n)
+    # Calculating metrics for each class
+    for (i in 1:n) {
+      TP <- confusionMatrix[i, i]
+      FP <- sum(confusionMatrix[i, ]) - TP
+      FN <- sum(confusionMatrix[, i]) - TP
+      precision[i] <- TP / (TP + FP)
+      recall[i] <- TP / (TP + FN)
+      f1_score[i] <- ifelse((precision[i] + recall[i]) > 0, (2 * precision[i] * recall[i]) / (precision[i] + recall[i]), 0)
+    }
+    # Calculating the global accuracy
+    global_accuracy <- sum(diag(confusionMatrix)) / sum(confusionMatrix)
+    # Returning a list containing the metrics
+    metrics <-list(
+      "Global Accuracy" = global_accuracy,
+      "Precision" = precision,
+      "Recall" = recall,
+      "F1 Score" = f1_score
+    )
+    # Creating a data frame to display precision, recall, and F1 score for each class
+    metrics_df <- data.frame(
+    Class = rownames(confusionMatrix),
+    Precision = metrics$Precision,
+    Recall = metrics$Recall,
+    `F1 Score` = metrics$`F1 Score`)
+    # Ajout d'une colonne "Global Accuracy" avec des NA
+    metrics_df$`Global Accuracy` <- NA
+    metrics_df
+    # Calcul des moyennes pour les autres métriques
+    average_metrics <- c(
+    "Average",
+    mean(metrics$Precision),
+    mean(metrics$Recall),
+    mean(metrics$`F1 Score`),
+    metrics$`Global Accuracy`  # Ajouter l'accuracy globale pour la ligne "Average"
+    )
+    # Ajout de la ligne des moyennes au data frame
+    metrics_df <- rbind(metrics_df, average_metrics)
+    return (metrics_df)
+  }
+```
+
+```{r, echo = T}
+#  Évaluation du modèle
+metrics_df <- calculate_metrics(confusionMatrice)
+
+# Affichage
+metrics_df%>%
+    kbl(digits=3) %>%
+    kable_styling(bootstrap_options = "striped", full_width = F, position = "center", latex_options = 'stripped')
+```
+
+
+Les résultats montrent des performances variables du modèle sur différentes classes d'émotion. La précision pour la peur est notable à 34.68% avec un rappel impressionnant de 90.69%, indiquant une forte capacité à identifier cette émotion. Cependant, la performance sur la joie est faible, avec une précision de 50% mais un rappel extrêmement bas à 0.75%, soulignant une difficulté à détecter cette émotion. L'anger a une précision de 39.05% et un rappel de 16.5%. La précision moyenne du modèle est de 41.25%, avec un rappel moyen de 35.98% et un score F1 moyen de 24.95%, tandis que l'accuracy globale atteint 35.38%. Tout ceci indique que le modèle bayésien naïf n'est clairement pas adapté ici car les résultats ne sont pas fiables.
+
+
+### <FONT color='#000033'> <FONT size = 3> 6 Amélioration et optimisation </FONT></FONT>
+
+<hr>
+
+<br>
+
+####  <FONT color='#000033'> <FONT size = 3> 6.1 Normalisation de la TF-IDF </FONT></FONT>
+
+<br>
+
+On va normaliser la TF-IDF. Ceci peut augmenter l'accuracy en équilibrant l'importance des termes au sein des documents, permettant ainsi une meilleure comparaison entre eux.
+
+```{r, echo = T}
+# Fonction pour normaliser les lignes d'un dataframe
+normalize <- function(x) {
+  return (x / sqrt(sum(x^2)))
+}
+
+# Appliquer la normalisation sur les dataframes TF-IDF
+
+tf_idf_train_dataframe_norm <- as.data.frame(lapply(tf_idf_train_dataframe, function(x) x / sqrt(sum(x^2))))
+
+tf_idf_test_dataframe_norm <- as.data.frame(lapply(tf_idf_test_dataframe, function(x) x / sqrt(sum(x^2))))
+```
+
+On séparare les variables catégorielles et numériques.
+
+```{r, echo = T}
+# Séparation des variables catégorielles et numériques
+X_train_norm <- tf_idf_train_dataframe_norm
+X_test_norm <- tf_idf_test_dataframe_norm
+y_train_norm <- as.factor(train$Emotion)
+y_test_norm <- as.factor(test$Emotion)
+```
+
+On vérifie qu'on a bien le même nombre de lignes entre X et y (train et test).
+
+```{r, echo = T}
+print(dim(X_train_norm))
+print(length(y_train_norm))
+print(dim(X_test_norm))
+print(length(y_test_norm))
+```
+
+On a bien le même nombre de lignes entre X et y (train et test).
+
+On regarde si la distribution des classes est bien répartie.
+
+```{r, echo = T}
+table(y_train_norm)
+```
+
+```{r, echo = T}
+table(y_test_norm)
+```
+
+On constate que la répartion des classes est bien équilibrée.
+
+On peut donc maintenant entraîner notre modèle. On le sauvegarde en fichier RDA car ce dernier prend un peu de temps à s'entraîner.
+
+```{r, echo = T}
+# Entraînement du modèle bayésien naïf
+# model_norm <- naiveBayes(X_train_norm, y_train_norm)
+```
+
+Prédiction sur les données d'entraînement.
+
+```{r, echo = T}
+# Prédictions sur l'ensemble d'entraînement
+# predictions_train_norm <- predict(model_norm, newdata = X_train_norm)
+```
+
+Prédiction sur les données de test.
+
+```{r, echo = T}
+# Prédiction sur l'ensemble de test
+# predictions_norm <- predict(model_norm, newdata = X_test_norm)
+```
+
+On sauvegarde tout ceci dans un fichier RDA car ces derniers prennent un peu de temps à s'executer.
+
+```{r, echo = T}
+# Sauvegarder les variables dans un fichier .rda
+# save(model_norm, predictions_train_norm, predictions_norm, file = "model_predictions_norm.Rda")
+```
+
+On charge le modèle.
+
+```{r, echo = T}
+load("model_predictions_norm.Rda")
+```
+
+On regarde l'accuracy d'entraînement.
+
+```{r, echo = T}
+# Calcul de l'accuracy
+accuracy_train_norm <- sum(predictions_train_norm == y_train_norm) / length(y_train_norm)
+print(accuracy_train_norm)
+```
+
+Regardons la matrice de confusion pour mieux comprendre les résultats.
+
+```{r, echo = T}
+# Évaluation du modèle
+confusionMatrice_norm <- table(as.factor(predictions_norm), y_test_norm)
+confusionMatrice_norm
+```
+
+```{r, echo = T}
+# Évaluation du modèle
+confusionMatrix(predictions, y_test)
+```
+
+On calcule la précision, le rappel et le score F1 en fonction des classes et également l'accuracy global du modèle.
+
+```{r, echo = T}
+#  Évaluation du modèle
+metrics_df_norm <- calculate_metrics(confusionMatrice_norm)
+
+# Affichage
+metrics_df_norm %>%
+    kbl(digits=3) %>%
+    kable_styling(bootstrap_options = "striped", full_width = F, position = "center", latex_options = 'stripped')
+```
+
+Les performances du modèle sur différentes classes d'émotion montrent une fois de plus des résultats variables, avec une légère détérioration par rapport à la précédente évaluation. La précision moyenne et le rappel ont légèrement diminué, indiquant une capacité réduite du modèle à identifier correctement les émotions, et l'accuracy globale est légèrement inférieure à 30.24%. Cela confirme que le modèle bayésien naïf, dans sa forme actuelle, ne parvient pas à saisir efficacement la complexité des émotions dans le texte.
+
+<br>
+
+####  <FONT color='#000033'> <FONT size = 3> 6.2 Validation croisée </FONT></FONT>
+
+<br>
+
+```{r, echo = T}
+# set.seed(123)
+
+# # Créer des indices pour la validation croisée k-fold
+# k <- 10
+# folds <- createFolds(df_net_tok_stem$Emotion, k = k, list = TRUE, returnTrain = TRUE)
+
+# # Initialiser une liste pour stocker les résultats
+# accuracy_list <- vector("numeric", length = k)
+
+# for(i in seq_along(folds)) {
+#   # Séparation du jeu de données en train et test pour le pli
+#   train_indices <- folds[[i]]
+#   test_indices <- setdiff(seq_len(nrow(df_net_tok_stem)), train_indices)
+  
+#   train <- df_net_tok_stem[train_indices, ]
+#   test <- df_net_tok_stem[test_indices, ]
+  
+#   # TF-IDF pour les données d'entraînement
+#   corpus_train <- VCorpus(VectorSource(train$Comment))
+#   dtm_train <- DocumentTermMatrix(corpus_train, control = list(weighting = weightTfIdf))
+#   tf_idf_train <- as.data.frame(as.matrix(dtm_train))
+  
+#   # Utiliser le même vocabulaire pour les données de test
+#   corpus_test <- VCorpus(VectorSource(test$Comment))
+#   dtm_test <- DocumentTermMatrix(corpus_test, control = list(weighting = weightTfIdf, dictionary = Terms(dtm_train)))
+#   tf_idf_test <- as.data.frame(as.matrix(dtm_test))
+  
+
+#   # Séparation des données pour l'entraînement
+#   X_train <- tf_idf_train
+#   X_test <- tf_idf_test
+#   y_train <- as.factor(train$Emotion)
+#   y_test <- as.factor(test$Emotion)
+  
+
+#   # Entraînement du modèle bayésien naïf
+#   model_nb <- naiveBayes(X_train, y_train)
+
+#   # Prédiction sur l'ensemble de test
+#   predictions <- predict(model_nb, newdata = X_test)
+
+#   accuracy <- sum(predictions == y_test) / length(y_test)
+#   accuracy_list[i] <- accuracy
+# }
+# mean_accuracy <- mean(accuracy_list)
+```
+
+```{r, echo = T}
+# Sauvegarder les variables dans un fichier .rda
+# save(accuracy_list, mean_accuracy, file = "model_kfold.Rda")
+```
+
+```{r, echo = T}
+load("model_kfold.Rda")
+```
+
+
+```{r, echo = T}
+print(accuracy_list)
+# Calculer la précision moyenne sur tous les plis
+print(mean_accuracy)
+```
+
+Les résultats de la validation croisée k-fold, avec une précision moyenne d'environ 35.09%, reflètent une performance modérée du modèle dans la classification des émotions.
+
+Encore une fois, le modèle naiveBayes n'est pas adéquat ici.
+
+<br>
+
+### <FONT color='#000033'> <FONT size = 3> 7 Conclusion </FONT></FONT>
+
+<br>
+
+
+Le modèle bayésien naïf, avec une précision moyenne globale autour de 35%, ne fournit pas une fiabilité suffisante pour la classification des émotions dans le texte. Les performances variables entre différentes émotions, particulièrement les difficultés avec la joie, suggèrent que ce modèle est inadéquat pour capturer la complexité des données émotionnelles. On pourrait donc envisager d'autres modèles plus sophistiqués comme les réseaux de neurones pour palier à ce problème.
